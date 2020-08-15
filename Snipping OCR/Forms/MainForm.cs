@@ -20,9 +20,11 @@ namespace Snipping_OCR
         private IntPtr _clipboardViewerNext;
         private readonly Hotkey _hotkey = new Hotkey();
         private bool _isSnipping = false;
-
-        public MainForm()
+        private string processingProgram;
+               
+        public MainForm(string invoke)
         {
+            processingProgram = invoke;
             InitializeComponent();
             SnippingTool.AreaSelected += SnippingToolOnAreaSelected;
             SnippingTool.Cancel += SnippingToolOnCancel;
@@ -192,7 +194,42 @@ namespace Snipping_OCR
             var ocr = OcrFactory.GetOcr(mnuEngine.SelectedItem.ToString());
             var result = ocr.Process(image, lang);
             notifyIcon.Visible = true; // hide balloon tip (if any)
-            OcrResultForm.ShowOcr(result);
+            if (String.IsNullOrEmpty(processingProgram))
+            {
+                OcrResultForm.ShowOcr(result);
+            } else
+            {
+                var filename = System.IO.Path.GetTempPath() + Guid.NewGuid().ToString();
+                image.Save(filename + ".png");
+                File.WriteAllText(filename + ".txt", result.Text);
+
+                Process process = new Process();
+                // Stop the process from opening a new window
+                process.StartInfo.RedirectStandardOutput = true;
+                process.StartInfo.RedirectStandardError = true;
+                process.StartInfo.UseShellExecute = false;
+                process.StartInfo.CreateNoWindow = true;
+
+                // Setup executable and parameters
+                process.StartInfo.FileName = processingProgram.Split(' ')[0];
+                process.StartInfo.Arguments = (
+                    String.Join(" ", processingProgram.Split(' ').Skip(1)) + 
+                                " --text=" + filename + ".txt --img=" + filename + ".png");
+                process.Start();
+                process.WaitForExit();
+                string showError = "";
+                string line;
+                while ((line = process.StandardError.ReadLine()) != null)
+                {
+                    // process and print
+                    showError += line;
+                }
+                if (showError.Length > 0)
+                {
+                    result.Text = showError;
+                    OcrResultForm.ShowOcr(result);
+                }
+            }
         }
 
         private void mnuExit_Click(object sender, EventArgs e)
